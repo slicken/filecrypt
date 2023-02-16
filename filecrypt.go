@@ -91,6 +91,11 @@ func main() {
 		}
 	}
 
+	if mode == "" {
+                fmt.Printf("%s\n", w)
+                return
+        }
+
 	// write file
 	if err = ioutil.WriteFile(file, w, 0644); err != nil {
 		panic(err)
