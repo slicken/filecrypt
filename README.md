@@ -19,6 +19,6 @@ Overall, these improvements enhance the security, robustness, and usability of t
 Usage: `filecrypt [option] /path/to/anyfile`
 
 Options:
-- `-e,--encrypt`
-- `-d,--decrypt`<br>
-(no option reads encrypted file)
+` -e,--encrypt`
+` -d,--decrypt`<br>
+`(no option reads encrypted file)`
