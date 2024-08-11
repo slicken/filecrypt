@@ -21,4 +21,4 @@ Usage: `filecrypt [option] /path/to/anyfile`
 Options:
 - `-e,--encrypt`
 - `-d,--decrypt`
-`(no option reads encrypted file)`
+(no option reads encrypted file)`
