@@ -16,9 +16,12 @@ Here's a summary of the improvements made from my "filecrypt"
 
 Overall, these improvements enhance the security, robustness, and usability of the encryption and decryption process.
 
-Usage: `filecrypt [option] /path/to/anyfile`
+```
+Usage: filecrypt2 [option] <input_file> [<output_file>]
 
-Options:<br>
-` -e,--encrypt`<br>
-` -d,--decrypt`<br>
-`(no option reads encrypted file)`<br>
+Option:
+  -e, --encrypt      Encrypt the input_file
+  -d, --decrypt      Decrypt the input_file
+  -p, --print        Print to stdout without changing input_file"
+  (default: no option prints to stdout without changing file)
+```

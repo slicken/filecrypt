@@ -10,8 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
-	"path/filepath"
 	"syscall"
 
 	"golang.org/x/crypto/pbkdf2"
@@ -26,80 +26,85 @@ const (
 	iterationCount    = 100000
 )
 
-func printHelp() {
-	_, app := filepath.Split(os.Args[0])
-	fmt.Printf("Usage: %s [option] /path/filename\n", app)
-	fmt.Println()
-	fmt.Printf("Option:\n")
-	fmt.Printf(" -e,--encrypt\n")
-	fmt.Printf(" -d,--decrypt\n")
-	fmt.Printf("(no option reads file)\n")
-	fmt.Println()
+func printHelp(code int) {
+	fmt.Printf(`Usage: %s [option] <input_file> [<output_file>]
+
+Option:
+  -e, --encrypt      Encrypt the input_file
+  -d, --decrypt      Decrypt the input_file
+  -p, --print        Print to stdout without changing input_file"
+  (default: no option prints to stdout)
+`, os.Args[0])
+	os.Exit(code)
 }
 
 func main() {
-	var mode, file string
+	var option, file, outfile string
 
 	for _, v := range os.Args[1:] {
 		switch v {
-		case "-e", "--encrypt":
-			mode = "Encrypt"
-		case "-d", "--decrypt":
-			mode = "Decrypt"
+		case "-e", "-enc", "--encrypt":
+			option = "Encrypt"
+		case "-d", "-dec", "--decrypt":
+			option = "Decrypt"
+		case "-p", "--print":
+			option = "Print"
 		default:
-			file = v
+			if file == "" {
+				file = v
+				outfile = v
+			} else if file == outfile {
+				outfile = v
+			}
 		}
 	}
 
 	if file == "" {
-		printHelp()
-		return
+		printHelp(1)
+	}
+	if option == "" {
+		option = "Print"
+	}
+	_, err := os.Stat(file)
+	if err != nil && os.IsNotExist(err) {
+		log.Printf("%q does not exist. try again\n", file)
 	}
 
-	if _, err := os.Stat(file); os.IsNotExist(err) {
-		fmt.Printf("%s does not exist. try again\n", file)
-		return
-	}
-
-	var output []byte
-	content, err := os.ReadFile(file)
+	var result []byte
+	fileData, err := os.ReadFile(file)
 	if err != nil {
-		fmt.Println("Error reading file:", err)
-		return
+		log.Fatalln("Error reading file:", err)
 	}
 
-	if mode == "Encrypt" {
-		password, err := setPassword(minPasswordLength) // Ensures minimum password length
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		output, err = encrypt(content, password)
-		if err != nil {
-			fmt.Println("Encryption error:", err)
-			return
-		}
-	} else if mode == "Decrypt" || mode == "" {
+	if option == "Print" || option == "Decrypt" {
 		password, err := prompt("Enter password: ")
 		if err != nil {
-			fmt.Println(err)
-			return
+			log.Fatalln(err)
 		}
-		output, err = decrypt(content, password)
+		result, err = decrypt(fileData, password)
 		if err != nil {
-			fmt.Println("Error decryption:", err)
-			return
+			log.Fatalln("Error decryption:", err)
+		}
+	} else if option == "Encrypt" {
+		password, err := setPassword(minPasswordLength)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		result, err = encrypt(fileData, password)
+		if err != nil {
+			log.Fatalln("Encryption error:", err)
 		}
 	}
 
-	if mode == "" {
-		fmt.Printf("%s", output)
-	} else {
-		if err = os.WriteFile(file, output, 0600); err != nil { // Sets file permissions to 0600
-			fmt.Println("Error writing file:", err)
-			return
+	if !(option == "Print" && file == outfile) {
+		if err = os.WriteFile(outfile, result, 0600); err != nil {
+			log.Println("Error writing file:", err)
 		}
-		fmt.Printf("Successfully %sed %s\n", mode, file)
+		fmt.Printf("Successfully %sed %q.\n", option, outfile)
+	}
+
+	if option == "Print" {
+		fmt.Printf("%s", result)
 	}
 }
 
@@ -137,7 +142,7 @@ func encrypt(data, passphrase []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	nonce, err := generateNonce() // Generate a new nonce for each encryption
+	nonce, err := generateNonce()
 	if err != nil {
 		return nil, err
 	}
@@ -174,17 +179,16 @@ func setPassword(minLength int) ([]byte, error) {
 			return nil, fmt.Errorf("password error: %s", err)
 		}
 		if len(password) < minLength {
-			fmt.Printf("Password must contain at least %d characters\n", minLength)
-			continue
+			return nil, fmt.Errorf("Password must contain at least %d characters\n", minLength)
 		}
 		confirm, err := prompt("Confirm password: ")
 		if err != nil {
 			return nil, fmt.Errorf("confirmation error: %s", err)
 		}
 		if !bytes.Equal(password, confirm) {
-			fmt.Println("Passwords did not match. Try again.")
-			continue
+			return nil, fmt.Errorf("Passwords did not match. Try again.")
 		}
+
 		return password, nil
 	}
 }
