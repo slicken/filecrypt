@@ -12,24 +12,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
-	"path/filepath"
 	"syscall"
 
-	"golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/term"
 )
 
-var iv = []byte("masterskey16bits")
-
 func printHelp() {
-	_, app := filepath.Split(os.Args[0])
-	fmt.Printf("Usage: %s [option] /path/filename\n", app)
+	fmt.Println("Usage: app [options] <filename>")
 	fmt.Println()
-	fmt.Printf("Option:\n")
-	fmt.Printf(" -e,--encrypt\n")
-	fmt.Printf(" -d,--decrypt\n")
-	fmt.Printf("(no option reads file)\n")
+	fmt.Println("Options:")
+	fmt.Println("  -e, --encrypt   Encrypt the input file")
+	fmt.Println("  -d, --decrypt   Decrypt the input file")
 	fmt.Println()
 }
 
@@ -41,7 +35,7 @@ func main() {
 		case "-e", "--encrypt":
 			mode = "Encrypt"
 
-		case "-d", "--dectrypt":
+		case "-d", "--decrypt":
 			mode = "Decrypt"
 
 		default:
@@ -61,7 +55,7 @@ func main() {
 
 	// ---
 	var w, pw []byte
-	r, err := ioutil.ReadFile(file)
+	r, err := os.ReadFile(file)
 	if err != nil {
 		panic(err)
 	}
@@ -70,11 +64,12 @@ func main() {
 		pw, err = SetPassword(3)
 		if err != nil {
 			fmt.Println(err)
-			return
+			os.Exit(1)
 		}
 		w, err = encrypt(r, string(pw))
 		if err != nil {
-			panic(err)
+			fmt.Println(err)
+			os.Exit(1)
 		}
 	}
 
@@ -82,24 +77,26 @@ func main() {
 		pw, err = Prompt("Enter password: ", true)
 		if err != nil {
 			fmt.Println(err)
-			return
+			os.Exit(1)
 		}
 		w, err = decrypt(r, string(pw))
 		if err != nil {
 			fmt.Println("Wrong Password")
-			return
+			os.Exit(1)
 		}
 	}
 
 	if mode == "" {
-                fmt.Printf("%s\n", w)
-                return
-        }
+		fmt.Printf("%s", w)
+		os.Exit(0)
+	}
 
 	// write file
-	if err = ioutil.WriteFile(file, w, 0644); err != nil {
-		panic(err)
+	if err = os.WriteFile(file, w, 0644); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
 	}
+
 	fmt.Printf("Successfully %sed %s\n", mode, file)
 }
 
@@ -174,10 +171,10 @@ func Prompt(input string, hidden bool) (b []byte, err error) {
 	defer fmt.Println()
 	fmt.Printf(input)
 
-	if hidden {
-		return terminal.ReadPassword(int(syscall.Stdin))
-	} else {
+	if !hidden {
 		_, err = fmt.Fscanln(bufio.NewReader(os.Stdin), &b)
+	} else {
+		return term.ReadPassword(int(syscall.Stdin))
 	}
 	return b, err
 }
