@@ -1,20 +1,17 @@
-# filecrypt2
+# filecrypt2: Secure File Encryption (Under Development)
 
-Simple file Encrypter/Decrypter written in Go
+**filecrypt2** is a file encryption tool written in Go, designed to provide robust security for your sensitive data.
 
-Here's a summary of the improvements made from my "filecrypt"
+**Features:**
 
-- **Nonce Generation and Usage:** In the final code, a nonce is generated for each encryption operation, ensuring that each ciphertext is unique even when encrypting the same plaintext multiple times with the same key. This prevents certain cryptographic attacks.
+* **Strong Encryption:** Employs advanced encryption algorithms for maximum protection.
+* **AI-Enhanced Security:** Leverages AI to explore innovative encryption techniques and stay ahead of emerging threats.
+* **User-Friendly Interface:** Offers a highly intuitive and easy-to-use experience.
 
-- **Salt Usage:** The final code incorporates the use of a salt during key derivation, which strengthens the security of the encryption process by making it computationally infeasible to precompute hashes for common passwords.
+**Development Plans:**
 
-- **Password Confirmation:** The `setPassword` function now includes a step for confirming the entered password, ensuring that users input their password correctly and reducing the risk of unintended password errors.
-
-- **Error Handling:** Error handling is improved throughout the codebase to provide more informative error messages and to handle potential errors more gracefully.
-
-- **Input Validation:** The minimum password length is enforced in the `setPassword` function, ensuring that users provide passwords that meet certain security requirements.
-
-Overall, these improvements enhance the security, robustness, and usability of the encryption and decryption process.
+* **AI Assistance:** As this is my first code project, AI is assisting me in its development. Therefore, when completed, this program may have zero bugs and offer exceptionally high security. Additionally, AI will help me identify popular encryption techniques that we can incorporate into this project later.
+* **Diverse Encryption Options:** Implement a variety of encryption algorithms to cater to different security needs.
 
 ```
 Usage: filecrypt2 [option] <input_file> [<output_file>]
