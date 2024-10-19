@@ -19,11 +19,12 @@ import (
 )
 
 func printHelp() {
-	fmt.Println("Usage: app [options] <filename>")
+	fmt.Printf("Usage: %s [options] <filename>", os.Args[0])
 	fmt.Println()
 	fmt.Println("Options:")
 	fmt.Println("  -e, --encrypt   Encrypt the input file")
 	fmt.Println("  -d, --decrypt   Decrypt the input file")
+	fmt.Println("(no option reads file)")
 	fmt.Println()
 }
 
