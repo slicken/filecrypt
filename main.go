@@ -28,7 +28,7 @@ var (
 	saltSize       = 16       // Salt size (good default)
 	keySize        = 32       // Key size for AES-256 (good default)
 	nonceSize      = 12       // Nonce size for AES-GCM (good default)
-	iterationCount = 10000000 // String iteration count for PBKDF2
+	iterationCount = 10000000 // Very string iteration count for PBKDF2
 )
 
 func printHelp(code int) {
@@ -57,8 +57,8 @@ without altering the input_file
 func main() {
 	var option, file, outfile string
 	var printScreen bool
-	// Parse the arguments
-	for i := 0; i < len(os.Args)-1; i++ { // Iterate till second last element
+
+	for i := 0; i < len(os.Args)-1; i++ {
 		arg := os.Args[i+1]
 
 		// Process flags that have an equal sign
