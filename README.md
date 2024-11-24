@@ -15,7 +15,7 @@ Encryption Settings:
   -s, --salt         Salt size (default: 16)
   -k, --key          Key size (default: 32)
   -n, --nonce        Nonce size (default: 12)
-  -i, --iter         Iteration count (default: 100000)
+  -i, --iter         Iteration count (default: 10000000)
 
 Option:
   -e, --encrypt      Encrypt the input_file
