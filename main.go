@@ -25,38 +25,38 @@ const (
 )
 
 var (
-	saltSize       = 16
-	keySize        = 32
-	nonceSize      = 12
-	iterationCount = 100000
+	saltSize       = 16       // Salt size (good default)
+	keySize        = 32       // Key size for AES-256 (good default)
+	nonceSize      = 12       // Nonce size for AES-GCM (good default)
+	iterationCount = 10000000 // String iteration count for PBKDF2
 )
 
 func printHelp(code int) {
 	fmt.Printf(`Usage: %s [<settings>] [option] <input_file> [<output_file>]
 
 Encryption Settings:
-  -s, --salt         Salt size (default: 16)
-  -k, --key          Key size (default: 32)
-  -n, --nonce        Nonce size (default: 12)
-  -i, --iter         Iteration count (default: 100000)
+  -s, --salt         Salt size (default: %d)
+  -k, --key          Key size (default: %d)
+  -n, --nonce        Nonce size (default: %d)
+  -i, --iter         Iteration count (default: %d)
 
 Option:
   -e, --encrypt      Encrypt the input_file
   -d, --decrypt      Decrypt the input_file
   -p, --print        Decrypt and print to stdout
-                     without changing input_file
+                     without altering input_file
   (default: no option will use --print)
 
 if output_file is provided, option data will be written
 without altering the input_file
 
-`, os.Args[0])
+`, os.Args[0], saltSize, keySize, nonceSize, iterationCount)
 	os.Exit(code)
 }
 
 func main() {
 	var option, file, outfile string
-
+	var printScreen bool
 	// Parse the arguments
 	for i := 0; i < len(os.Args)-1; i++ { // Iterate till second last element
 		arg := os.Args[i+1]
@@ -152,7 +152,7 @@ func main() {
 			case "-d", "-dec", "--decrypt":
 				option = "Decrypt"
 			case "-p", "--print":
-				option = "Print"
+				printScreen = true
 			default:
 				if file == "" {
 					file = arg
@@ -171,7 +171,8 @@ func main() {
 		printHelp(1)
 	}
 	if option == "" {
-		option = "Print"
+		option = "Decrypt"
+		printScreen = true
 	}
 	_, err := os.Stat(file)
 	if err != nil && os.IsNotExist(err) {
@@ -204,14 +205,14 @@ func main() {
 		}
 	}
 
-	if !(option == "Print" && file == outfile) {
+	if !(printScreen && file == outfile) {
 		if err = os.WriteFile(outfile, result, 0600); err != nil {
 			log.Println("Error writing file:", err)
 		}
 		fmt.Printf("Successfully %sed %q.\n", option, outfile)
 	}
 
-	if option == "Print" {
+	if printScreen {
 		fmt.Printf("%s", result)
 	}
 }
@@ -288,6 +289,9 @@ func setPassword(minLength int) ([]byte, error) {
 	if len(password) < minLength {
 		return nil, fmt.Errorf("password must contain at least %d characters", minLength)
 	}
+	if !isStrongPassword(password) {
+		return nil, fmt.Errorf("password must contain at least one uppercase letter, one digit, and one special character")
+	}
 	confirm, err := prompt("Confirm password: ")
 	if err != nil {
 		return nil, fmt.Errorf("confirmation error: %s", err)
@@ -296,6 +300,23 @@ func setPassword(minLength int) ([]byte, error) {
 		return nil, fmt.Errorf("passwords did not match. Try again")
 	}
 	return password, nil
+}
+
+func isStrongPassword(password []byte) bool {
+	hasUpper := false
+	hasDigit := false
+	hasSpecial := false
+	for _, c := range password {
+		switch {
+		case c >= 'A' && c <= 'Z':
+			hasUpper = true
+		case c >= '0' && c <= '9':
+			hasDigit = true
+		case (c >= '!' && c <= '/') || (c >= ':' && c <= '@') || (c >= '[' && c <= '`') || (c >= '{' && c <= '~'):
+			hasSpecial = true
+		}
+	}
+	return hasUpper && hasDigit && hasSpecial
 }
 
 func prompt(input string) ([]byte, error) {
