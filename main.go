@@ -320,8 +320,8 @@ func isStrongPassword(password []byte) bool {
 }
 
 func prompt(input string) ([]byte, error) {
-	defer fmt.Fprintln(os.Stderr)
 	fmt.Fprint(os.Stderr, input)
+	defer fmt.Fprintln(os.Stderr)
 
 	return term.ReadPassword(int(syscall.Stdin))
 }
