@@ -5,20 +5,25 @@
 **Features:**
 
 * **Strong Encryption:** Employs advanced encryption algorithms for maximum protection.
-* **AI-Enhanced Security:** Leverages AI to explore innovative encryption techniques and stay ahead of emerging threats.
 * **User-Friendly Interface:** Offers a highly intuitive and easy-to-use experience.
-
-**Development Plans:**
-
-* **AI Assistance:** As this is my first code project, AI is assisting me in its development. Therefore, when completed, this program may have zero bugs and offer exceptionally high security. Additionally, AI will help me identify popular encryption techniques that we can incorporate into this project later.
-* **Diverse Encryption Options:** Implement a variety of encryption algorithms to cater to different security needs.
+* **Configurable Encryption settings:** Change encryption variables like Salt size, Nonce size and more for better security
 
 ```
-Usage: filecrypt2 [option] <input_file> [<output_file>]
+Usage: filecrypt2 [<settings>] [option] <input_file> [<output_file>]
+
+Encryption Settings:
+  -s, --salt         Salt size (default: 16)
+  -k, --key          Key size (default: 32)
+  -n, --nonce        Nonce size (default: 12)
+  -i, --iter         Iteration count (default: 100000)
 
 Option:
   -e, --encrypt      Encrypt the input_file
   -d, --decrypt      Decrypt the input_file
-  -p, --print        Print to stdout without changing input_file"
-  (default: no option prints to stdout without changing file)
+  -p, --print        Decrypt and print to stdout
+                     without changing input_file
+  (default: no option will use --print)
+
+If output_file is provided, option data will be written
+without altering the input_file.
 ```

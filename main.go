@@ -12,6 +12,8 @@ import (
 	"io"
 	"log"
 	"os"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"golang.org/x/crypto/pbkdf2"
@@ -20,20 +22,34 @@ import (
 
 const (
 	minPasswordLength = 8
-	saltSize          = 16
-	keySize           = 32
-	nonceSize         = 12
-	iterationCount    = 100000
+)
+
+var (
+	saltSize       = 16
+	keySize        = 32
+	nonceSize      = 12
+	iterationCount = 100000
 )
 
 func printHelp(code int) {
-	fmt.Printf(`Usage: %s [option] <input_file> [<output_file>]
+	fmt.Printf(`Usage: %s [<settings>] [option] <input_file> [<output_file>]
+
+Encryption Settings:
+  -s, --salt         Salt size (default: 16)
+  -k, --key          Key size (default: 32)
+  -n, --nonce        Nonce size (default: 12)
+  -i, --iter         Iteration count (default: 100000)
 
 Option:
   -e, --encrypt      Encrypt the input_file
   -d, --decrypt      Decrypt the input_file
-  -p, --print        Print to stdout without changing input_file"
-  (default: no option prints to stdout)
+  -p, --print        Decrypt and print to stdout
+                     without changing input_file
+  (default: no option will use --print)
+
+if output_file is provided, option data will be written
+without altering the input_file
+
 `, os.Args[0])
 	os.Exit(code)
 }
@@ -41,22 +57,114 @@ Option:
 func main() {
 	var option, file, outfile string
 
-	for _, v := range os.Args[1:] {
-		switch v {
-		case "-e", "-enc", "--encrypt":
-			option = "Encrypt"
-		case "-d", "-dec", "--decrypt":
-			option = "Decrypt"
-		case "-p", "--print":
-			option = "Print"
-		default:
-			if file == "" {
-				file = v
-				outfile = v
-			} else if file == outfile {
-				outfile = v
+	// Parse the arguments
+	for i := 0; i < len(os.Args)-1; i++ { // Iterate till second last element
+		arg := os.Args[i+1]
+
+		// Process flags that have an equal sign
+		if strings.Contains(arg, "=") {
+			parts := strings.SplitN(arg, "=", 2)
+			flag := parts[0]
+			value := parts[1]
+
+			if len(value) == 0 {
+				log.Fatalf("value is missing in %s=\n", flag)
+			}
+
+			var err error
+			switch flag {
+			case "-s", "--salt":
+				if saltSize, err = strconv.Atoi(value); err != nil {
+					log.Fatalln("Salt size value is missing (type=int) in -s=value/--salt=value")
+				}
+				fmt.Println("Salt size set to:", saltSize)
+			case "-k", "--key":
+				if keySize, err = strconv.Atoi(value); err != nil {
+					log.Fatalln("Key size value is missing (type=int) in -k=value/--key=value")
+				}
+				fmt.Println("Key size set to:", keySize)
+			case "-n", "--nonce":
+				if nonceSize, err = strconv.Atoi(value); err != nil {
+					log.Fatalln("Nonce size value is missing (type=int) in -n=value/--nonce=value")
+				}
+				fmt.Println("Nonce size set to:", nonceSize)
+			case "-i", "--iter":
+				if iterationCount, err = strconv.Atoi(value); err != nil {
+					log.Fatalln("Iteration count value is missing (type=int) in -i=value/--iter=value")
+				}
+				fmt.Println("Iteration count set to:", iterationCount)
+			default:
+				log.Fatalf("Invalid argument %s", flag)
+			}
+		} else {
+			// Process flags that don't require an equal sign
+			switch arg {
+			case "-s", "--salt":
+				if i+2 < len(os.Args) {
+					n, err := strconv.Atoi(os.Args[i+2])
+					if err != nil {
+						log.Fatalln("Invalid salt size:", err)
+					}
+					saltSize = n
+					fmt.Println("Salt size set to:", saltSize)
+					i++
+				} else {
+					log.Fatalln("Salt size value is missing after -s/--salt")
+				}
+			case "-k", "--key":
+				if i+2 < len(os.Args) {
+					n, err := strconv.Atoi(os.Args[i+2])
+					if err != nil {
+						log.Fatalln("Invalid key size:", err)
+					}
+					keySize = n
+					fmt.Println("Key size set to:", keySize)
+					i++ // Skip next argument
+				} else {
+					log.Fatalln("Key size value is missing after -k/--key")
+				}
+			case "-n", "--nonce":
+				if i+2 < len(os.Args) {
+					n, err := strconv.Atoi(os.Args[i+2])
+					if err != nil {
+						log.Fatalln("Invalid nonce size:", err)
+					}
+					nonceSize = n
+					fmt.Println("Nonce size set to:", nonceSize)
+					i++ // Skip next argument
+				} else {
+					log.Fatalln("Nonce value is missing after -n/--nonce")
+				}
+			case "-i", "--iter":
+				if i+2 < len(os.Args) {
+					n, err := strconv.Atoi(os.Args[i+2])
+					if err != nil {
+						log.Fatalln("Invalid iteration count:", err)
+					}
+					iterationCount = n
+					fmt.Println("Iteration count set to:", iterationCount)
+					i++ // Skip next argument
+				} else {
+					log.Fatalln("Iteration count value is missing after -i/--iter")
+				}
+			case "-e", "-enc", "--encrypt":
+				option = "Encrypt"
+			case "-d", "-dec", "--decrypt":
+				option = "Decrypt"
+			case "-p", "--print":
+				option = "Print"
+			default:
+				if file == "" {
+					file = arg
+				} else {
+					outfile = arg
+				}
 			}
 		}
+	}
+
+	if outfile == "" && file != "" {
+		outfile = file
 	}
 
 	if file == "" {
@@ -173,24 +281,21 @@ func decrypt(data, passphrase []byte) ([]byte, error) {
 }
 
 func setPassword(minLength int) ([]byte, error) {
-	for { // Ensures minimum password length
-		password, err := prompt("Enter password: ")
-		if err != nil {
-			return nil, fmt.Errorf("password error: %s", err)
-		}
-		if len(password) < minLength {
-			return nil, fmt.Errorf("Password must contain at least %d characters\n", minLength)
-		}
-		confirm, err := prompt("Confirm password: ")
-		if err != nil {
-			return nil, fmt.Errorf("confirmation error: %s", err)
-		}
-		if !bytes.Equal(password, confirm) {
-			return nil, fmt.Errorf("Passwords did not match. Try again.")
-		}
-
-		return password, nil
+	password, err := prompt("Enter password: ")
+	if err != nil {
+		return nil, fmt.Errorf("password error: %s", err)
 	}
+	if len(password) < minLength {
+		return nil, fmt.Errorf("password must contain at least %d characters", minLength)
+	}
+	confirm, err := prompt("Confirm password: ")
+	if err != nil {
+		return nil, fmt.Errorf("confirmation error: %s", err)
+	}
+	if !bytes.Equal(password, confirm) {
+		return nil, fmt.Errorf("passwords did not match. Try again")
+	}
+	return password, nil
 }
 
 func prompt(input string) ([]byte, error) {
