@@ -5,18 +5,19 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
 
-	"golang.org/x/crypto/pbkdf2"
+	"golang.org/x/crypto/argon2"
+
 	"golang.org/x/term"
 )
 
@@ -25,32 +26,40 @@ const (
 )
 
 var (
-	saltSize       = 16       // Salt size (good default)
-	keySize        = 32       // Key size for AES-256 (good default)
-	nonceSize      = 12       // Nonce size for AES-GCM (good default)
-	iterationCount = 10000000 // Very string iteration count for PBKDF2
+	saltSize       = 32
+	iterationCount = 4
+	keySize        = 32
+	nonceSize      = 12
+
+	argonMemory      uint32 = 128 * 1024
+	argonParallelism uint8  = 4
 )
 
 func printHelp(code int) {
 	fmt.Printf(`Usage: %s [<settings>] [option] <input_file> [<output_file>]
 
-Encryption Settings:
-  -s, --salt         Salt size (default: %d)
-  -k, --key          Key size (default: %d)
-  -n, --nonce        Nonce size (default: %d)
-  -i, --iter         Iteration count (default: %d)
+Advanced Settings:
+  -s, --salt SIZE    Salt size (default: %d bytes)
+  -i, --iter COUNT   Iteration count for Argon2 (default: %d)
+  -k, --key SIZE     Key size (default: %d bytes)
+  -n, --nonce SIZE   Nonce size (default: %d bytes)
 
-Option:
-  -e, --encrypt      Encrypt the input_file
-  -d, --decrypt      Decrypt the input_file
-  -p, --print        Decrypt and print to stdout
-                     without altering input_file
-  (default: no option will use --print)
+Options:
+  -e, --encrypt      Encrypt the input file
+  -d, --decrypt      Decrypt the input file
+  -p, --print        Print decrypted content to stdout
+  -h, --help         Show help menu
 
-if output_file is provided, option data will be written
-without altering the input_file
+Note: If no option is provided, the default action is to print the decrypted file content (using --print).
 
-`, os.Args[0], saltSize, keySize, nonceSize, iterationCount)
+Examples:
+  Encrypt a file: %s -e file.txt file.enc
+  Decrypt a file: %s -d file.enc file.txt
+  Print decrypted file: %s -d file.enc -p or %s file.enc
+
+If output_file or the print option is used, the input_file will not be modified.
+
+`, os.Args[0], saltSize, iterationCount, keySize, nonceSize, os.Args[0], os.Args[0], os.Args[0], os.Args[0])
 	os.Exit(code)
 }
 
@@ -190,6 +199,7 @@ func main() {
 		if err != nil {
 			log.Fatalln(err)
 		}
+		defer zeroBytes(password)
 		result, err = decrypt(fileData, password)
 		if err != nil {
 			log.Fatalln("Error decryption:", err)
@@ -199,6 +209,7 @@ func main() {
 		if err != nil {
 			log.Fatalln(err)
 		}
+		defer zeroBytes(password)
 		result, err = encrypt(fileData, password)
 		if err != nil {
 			log.Fatalln("Encryption error:", err)
@@ -214,6 +225,12 @@ func main() {
 
 	if printScreen {
 		fmt.Printf("%s", result)
+	}
+}
+
+func zeroBytes(data []byte) {
+	for i := range data {
+		data[i] = 0
 	}
 }
 
@@ -234,7 +251,12 @@ func generateSalt() ([]byte, error) {
 }
 
 func deriveKey(password, salt []byte) []byte {
-	return pbkdf2.Key(password, salt, iterationCount, keySize, sha256.New)
+	return argon2.IDKey(password, salt, uint32(iterationCount), argonMemory, argonParallelism, uint32(keySize))
+}
+
+func autoTuneArgonParams() {
+	argonMemory = uint32(runtime.NumCPU()) * 64 * 1024
+	argonParallelism = uint8(runtime.NumCPU())
 }
 
 func encrypt(data, passphrase []byte) ([]byte, error) {
