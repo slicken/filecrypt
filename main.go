@@ -1,65 +1,68 @@
 package main
 
 import (
-	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"os"
-	"runtime"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
 
 	"golang.org/x/crypto/argon2"
-
 	"golang.org/x/term"
 )
 
 const (
 	minPasswordLength = 8
-)
-
-var (
-	saltSize       = 32
-	iterationCount = 4
-	keySize        = 32
-	nonceSize      = 12
+	defaultSaltSize   = 32
+	defaultKeySize    = 32
+	defaultIterCount  = 4
+	requiredNonceSize = 12 // Fixed to 12 bytes as required by AES-GCM
 
 	argonMemory      uint32 = 128 * 1024
 	argonParallelism uint8  = 4
+)
+
+var (
+	saltSize       = defaultSaltSize
+	iterationCount = defaultIterCount
+	keySize        = defaultKeySize
 )
 
 func printHelp(code int) {
 	fmt.Printf(`Usage: %s [<settings>] [option] <input_file> [<output_file>]
 
 Advanced Settings:
-  -s, --salt SIZE    Salt size (default: %d bytes)
-  -i, --iter COUNT   Iteration count for Argon2 (default: %d)
-  -k, --key SIZE     Key size (default: %d bytes)
-  -n, --nonce SIZE   Nonce size (default: %d bytes)
+  -s, --salt SIZE    Salt size (default: %d bytes, fixed minimum)
+  -i, --iter COUNT   Iteration count for Argon2 (default: %d, minimum: %d)
+  -k, --key SIZE     Key size (default: %d bytes, fixed minimum)
 
 Options:
   -e, --encrypt      Encrypt the input file
   -d, --decrypt      Decrypt the input file
-  -p, --print        Print decrypted content to stdout
+  -p, --print        Print result to stdout
   -h, --help         Show help menu
 
-Note: If no option is provided, the default action is to print the decrypted file content (using --print).
+Note:
+If no option is provided, default action will decrypt and print
+result to stdout without modifying input_file.
+
+If output_file or the print option is used, input_file will not be modified.
 
 Examples:
   Encrypt a file: %s -e file.txt file.enc
   Decrypt a file: %s -d file.enc file.txt
   Print decrypted file: %s -d file.enc -p or %s file.enc
 
-If output_file or the print option is used, the input_file will not be modified.
-
-`, os.Args[0], saltSize, iterationCount, keySize, nonceSize, os.Args[0], os.Args[0], os.Args[0], os.Args[0])
+`, os.Args[0], defaultSaltSize, defaultIterCount, defaultIterCount, defaultKeySize, os.Args[0], os.Args[0], os.Args[0], os.Args[0])
 	os.Exit(code)
 }
 
@@ -86,24 +89,28 @@ func main() {
 				if saltSize, err = strconv.Atoi(value); err != nil {
 					log.Fatalln("Salt size value is missing (type=int) in -s=value/--salt=value")
 				}
+				if saltSize < defaultSaltSize {
+					log.Fatalf("Salt size must be at least %d bytes\n", defaultSaltSize)
+				}
 				fmt.Println("Salt size set to:", saltSize)
-			case "-k", "--key":
-				if keySize, err = strconv.Atoi(value); err != nil {
-					log.Fatalln("Key size value is missing (type=int) in -k=value/--key=value")
-				}
-				fmt.Println("Key size set to:", keySize)
-			case "-n", "--nonce":
-				if nonceSize, err = strconv.Atoi(value); err != nil {
-					log.Fatalln("Nonce size value is missing (type=int) in -n=value/--nonce=value")
-				}
-				fmt.Println("Nonce size set to:", nonceSize)
 			case "-i", "--iter":
 				if iterationCount, err = strconv.Atoi(value); err != nil {
 					log.Fatalln("Iteration count value is missing (type=int) in -i=value/--iter=value")
 				}
+				if iterationCount < defaultIterCount {
+					log.Fatalf("Iteration count must be at least %d\n", defaultIterCount)
+				}
 				fmt.Println("Iteration count set to:", iterationCount)
+			case "-k", "--key":
+				if keySize, err = strconv.Atoi(value); err != nil {
+					log.Fatalln("Key size value is missing (type=int) in -k=value/--key=value")
+				}
+				if keySize < defaultKeySize {
+					log.Fatalf("Key size must be at least %d bytes\n", defaultKeySize)
+				}
+				fmt.Println("Key size set to:", keySize)
 			default:
-				log.Fatalf("Invalid argument %s", flag)
+				log.Fatalf("Invalid argument: %s\n", flag)
 			}
 		} else {
 			// Process flags that don't require an equal sign
@@ -114,35 +121,14 @@ func main() {
 					if err != nil {
 						log.Fatalln("Invalid salt size:", err)
 					}
+					if n < defaultSaltSize {
+						log.Fatalf("Salt size must be at least %d bytes\n", defaultSaltSize)
+					}
 					saltSize = n
 					fmt.Println("Salt size set to:", saltSize)
 					i++
 				} else {
 					log.Fatalln("Salt size value is missing after -s/--salt")
-				}
-			case "-k", "--key":
-				if i+2 < len(os.Args) {
-					n, err := strconv.Atoi(os.Args[i+2])
-					if err != nil {
-						log.Fatalln("Invalid key size:", err)
-					}
-					keySize = n
-					fmt.Println("Key size set to:", keySize)
-					i++ // Skip next argument
-				} else {
-					log.Fatalln("Key size value is missing after -k/--key")
-				}
-			case "-n", "--nonce":
-				if i+2 < len(os.Args) {
-					n, err := strconv.Atoi(os.Args[i+2])
-					if err != nil {
-						log.Fatalln("Invalid nonce size:", err)
-					}
-					nonceSize = n
-					fmt.Println("Nonce size set to:", nonceSize)
-					i++ // Skip next argument
-				} else {
-					log.Fatalln("Nonce value is missing after -n/--nonce")
 				}
 			case "-i", "--iter":
 				if i+2 < len(os.Args) {
@@ -150,15 +136,39 @@ func main() {
 					if err != nil {
 						log.Fatalln("Invalid iteration count:", err)
 					}
+					if n < defaultIterCount {
+						log.Fatalf("Iteration count must be at least %d\n", defaultIterCount)
+					}
 					iterationCount = n
 					fmt.Println("Iteration count set to:", iterationCount)
-					i++ // Skip next argument
+					i++
 				} else {
 					log.Fatalln("Iteration count value is missing after -i/--iter")
 				}
+			case "-k", "--key":
+				if i+2 < len(os.Args) {
+					n, err := strconv.Atoi(os.Args[i+2])
+					if err != nil {
+						log.Fatalln("Invalid key size:", err)
+					}
+					if n < defaultKeySize {
+						log.Fatalf("Key size must be at least %d bytes\n", defaultKeySize)
+					}
+					keySize = n
+					fmt.Println("Key size set to:", keySize)
+					i++
+				} else {
+					log.Fatalln("Key size value is missing after -k/--key")
+				}
 			case "-e", "-enc", "--encrypt":
+				if option == "Decrypt" {
+					log.Fatalln("Cant use Encrypt and Decrypt at the same time")
+				}
 				option = "Encrypt"
 			case "-d", "-dec", "--decrypt":
+				if option == "Encrypt" {
+					log.Fatalln("Cant use Encrypt and Decrypt at the same time")
+				}
 				option = "Decrypt"
 			case "-p", "--print":
 				printScreen = true
@@ -228,24 +238,24 @@ func main() {
 	}
 }
 
+func generateNonce() ([]byte, error) {
+	nonce := make([]byte, requiredNonceSize) // Fixed to 12 bytes
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, fmt.Errorf("failed to generate nonce: %v", err)
+	}
+	return nonce, nil
+}
+
 func zeroBytes(data []byte) {
 	for i := range data {
 		data[i] = 0
 	}
 }
 
-func generateNonce() ([]byte, error) {
-	nonce := make([]byte, nonceSize)
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, err
-	}
-	return nonce, nil
-}
-
 func generateSalt() ([]byte, error) {
 	salt := make([]byte, saltSize)
 	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to generate salt: %v", err)
 	}
 	return salt, nil
 }
@@ -254,29 +264,32 @@ func deriveKey(password, salt []byte) []byte {
 	return argon2.IDKey(password, salt, uint32(iterationCount), argonMemory, argonParallelism, uint32(keySize))
 }
 
-func autoTuneArgonParams() {
-	argonMemory = uint32(runtime.NumCPU()) * 64 * 1024
-	argonParallelism = uint8(runtime.NumCPU())
-}
-
 func encrypt(data, passphrase []byte) ([]byte, error) {
 	salt, err := generateSalt()
 	if err != nil {
 		return nil, err
 	}
+	defer zeroBytes(salt)
+
 	key := deriveKey(passphrase, salt)
+	defer zeroBytes(key)
+
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create AES cipher: %v", err)
 	}
+
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create GCM cipher mode: %v", err)
 	}
+
 	nonce, err := generateNonce()
 	if err != nil {
 		return nil, err
 	}
+	defer zeroBytes(nonce)
+
 	ciphertext := gcm.Seal(nonce, nonce, data, nil)
 	return []byte(base64.URLEncoding.EncodeToString(append(salt, ciphertext...))), nil
 }
@@ -284,23 +297,43 @@ func encrypt(data, passphrase []byte) ([]byte, error) {
 func decrypt(data, passphrase []byte) ([]byte, error) {
 	rawData, err := base64.URLEncoding.DecodeString(string(data))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decode base64 data: %v", err)
 	}
-	if len(rawData) < saltSize+nonceSize {
-		return nil, errors.New("malformed ciphertext")
+
+	if len(rawData) < saltSize+requiredNonceSize {
+		return nil, errors.New("ciphertext is malformed or corrupted")
 	}
+
 	salt, ciphertext := rawData[:saltSize], rawData[saltSize:]
+	defer zeroBytes(salt)
+
 	key := deriveKey(passphrase, salt)
+	defer zeroBytes(key)
+
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create AES cipher: %v", err)
 	}
+
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create GCM cipher mode: %v", err)
 	}
-	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
-	return gcm.Open(nil, nonce, ciphertext, nil)
+
+	if len(ciphertext) < gcm.NonceSize() {
+		return nil, errors.New("ciphertext is too short")
+	}
+
+	nonce, ciphertext := ciphertext[:requiredNonceSize], ciphertext[requiredNonceSize:]
+	defer zeroBytes(nonce)
+
+	// 	return gcm.Open(nil, nonce, ciphertext, nil)
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, fmt.Errorf("decryption failed: %v", err)
+	}
+
+	return plaintext, nil
 }
 
 func setPassword(minLength int) ([]byte, error) {
@@ -318,27 +351,23 @@ func setPassword(minLength int) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("confirmation error: %s", err)
 	}
-	if !bytes.Equal(password, confirm) {
+	if subtle.ConstantTimeCompare(password, confirm) != 1 {
 		return nil, fmt.Errorf("passwords did not match. Try again")
 	}
 	return password, nil
 }
 
 func isStrongPassword(password []byte) bool {
-	hasUpper := false
-	hasDigit := false
-	hasSpecial := false
-	for _, c := range password {
-		switch {
-		case c >= 'A' && c <= 'Z':
-			hasUpper = true
-		case c >= '0' && c <= '9':
-			hasDigit = true
-		case (c >= '!' && c <= '/') || (c >= ':' && c <= '@') || (c >= '[' && c <= '`') || (c >= '{' && c <= '~'):
-			hasSpecial = true
-		}
-	}
-	return hasUpper && hasDigit && hasSpecial
+	re := regexp.MustCompile(`[A-Z]`)
+	hasUppercase := re.Match(password)
+
+	re = regexp.MustCompile(`\d`)
+	hasDigit := re.Match(password)
+
+	re = regexp.MustCompile(`[!@#$%^&*]`)
+	hasSpecial := re.Match(password)
+
+	return len(password) >= minPasswordLength && hasUppercase && hasDigit && hasSpecial
 }
 
 func prompt(input string) ([]byte, error) {
