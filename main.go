@@ -4,6 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
@@ -16,38 +17,42 @@ import (
 	"strings"
 	"syscall"
 
-	"golang.org/x/crypto/argon2"
+	"golang.org/x/crypto/pbkdf2"
 	"golang.org/x/term"
 )
 
+/*
+runtime.GOMAXPROCS(8)
+fmt.Println("Number of CPU cores being used:", runtime.NumCPU())
+*/
+
 const (
 	minPasswordLength = 8
-	defaultSaltSize   = 32
-	defaultKeySize    = 32
-	defaultIterCount  = 4
+	minSaltSize       = 8
+	minIterCount      = 10000
+	minKeySize        = 16
 	requiredNonceSize = 12 // Fixed to 12 bytes as required by AES-GCM
-
-	argonMemory      uint32 = 128 * 1024
-	argonParallelism uint8  = 4
 )
 
 var (
-	saltSize       = defaultSaltSize
-	iterationCount = defaultIterCount
-	keySize        = defaultKeySize
+	saltSize       = 16       // Salt size (good default)
+	keySize        = 32       // Ensure AES-256 key size
+	iterationCount = 10000000 // Strong iteration count for PBKDF2
+	binary         = false
 )
 
 func printHelp(code int) {
 	fmt.Printf(`Usage: %s [<settings>] [option] <input_file> [<output_file>]
 
 Advanced Settings:
-  -s, --salt SIZE    Salt size (default: %d bytes, fixed minimum)
-  -i, --iter COUNT   Iteration count for Argon2 (default: %d, minimum: %d)
-  -k, --key SIZE     Key size (default: %d bytes, fixed minimum)
+  -s, --salt SIZE    Salt size (default: %d bytes)
+  -i, --iter COUNT   Iteration count (default: %d)
+  -k, --key SIZE     Key size (default: %d bytes)
 
-Options:
+  Options:
   -e, --encrypt      Encrypt the input file
   -d, --decrypt      Decrypt the input file
+  -b, --binary       Output in binary format (raw data)
   -p, --print        Print result to stdout
   -h, --help         Show help menu
 
@@ -62,13 +67,15 @@ Examples:
   Decrypt a file: %s -d file.enc file.txt
   Print decrypted file: %s -d file.enc -p or %s file.enc
 
-`, os.Args[0], defaultSaltSize, defaultIterCount, defaultIterCount, defaultKeySize, os.Args[0], os.Args[0], os.Args[0], os.Args[0])
+`, os.Args[0], saltSize, iterationCount, keySize, os.Args[0], os.Args[0], os.Args[0], os.Args[0])
 	os.Exit(code)
 }
 
 func main() {
 	var option, file, outfile string
 	var printScreen bool
+
+	// arguments works in any order and with 'flag=X' or without '-flag X'
 
 	for i := 0; i < len(os.Args)-1; i++ {
 		arg := os.Args[i+1]
@@ -89,24 +96,24 @@ func main() {
 				if saltSize, err = strconv.Atoi(value); err != nil {
 					log.Fatalln("Salt size value is missing (type=int) in -s=value/--salt=value")
 				}
-				if saltSize < defaultSaltSize {
-					log.Fatalf("Salt size must be at least %d bytes\n", defaultSaltSize)
+				if saltSize < minSaltSize {
+					log.Fatalf("Salt size must be at least %d bytes\n", minSaltSize)
 				}
 				fmt.Println("Salt size set to:", saltSize)
 			case "-i", "--iter":
 				if iterationCount, err = strconv.Atoi(value); err != nil {
 					log.Fatalln("Iteration count value is missing (type=int) in -i=value/--iter=value")
 				}
-				if iterationCount < defaultIterCount {
-					log.Fatalf("Iteration count must be at least %d\n", defaultIterCount)
+				if iterationCount < minIterCount {
+					log.Fatalf("Iteration count must be at least %d\n", minIterCount)
 				}
 				fmt.Println("Iteration count set to:", iterationCount)
 			case "-k", "--key":
 				if keySize, err = strconv.Atoi(value); err != nil {
 					log.Fatalln("Key size value is missing (type=int) in -k=value/--key=value")
 				}
-				if keySize < defaultKeySize {
-					log.Fatalf("Key size must be at least %d bytes\n", defaultKeySize)
+				if keySize < minKeySize {
+					log.Fatalf("Key size must be at least %d bytes\n", minKeySize)
 				}
 				fmt.Println("Key size set to:", keySize)
 			default:
@@ -121,8 +128,8 @@ func main() {
 					if err != nil {
 						log.Fatalln("Invalid salt size:", err)
 					}
-					if n < defaultSaltSize {
-						log.Fatalf("Salt size must be at least %d bytes\n", defaultSaltSize)
+					if n < minSaltSize {
+						log.Fatalf("Salt size must be at least %d bytes\n", minSaltSize)
 					}
 					saltSize = n
 					fmt.Println("Salt size set to:", saltSize)
@@ -136,8 +143,8 @@ func main() {
 					if err != nil {
 						log.Fatalln("Invalid iteration count:", err)
 					}
-					if n < defaultIterCount {
-						log.Fatalf("Iteration count must be at least %d\n", defaultIterCount)
+					if n < minIterCount {
+						log.Fatalf("Iteration count must be at least %d\n", minIterCount)
 					}
 					iterationCount = n
 					fmt.Println("Iteration count set to:", iterationCount)
@@ -151,8 +158,8 @@ func main() {
 					if err != nil {
 						log.Fatalln("Invalid key size:", err)
 					}
-					if n < defaultKeySize {
-						log.Fatalf("Key size must be at least %d bytes\n", defaultKeySize)
+					if n < minKeySize {
+						log.Fatalf("Key size must be at least %d bytes\n", minKeySize)
 					}
 					keySize = n
 					fmt.Println("Key size set to:", keySize)
@@ -162,16 +169,19 @@ func main() {
 				}
 			case "-e", "-enc", "--encrypt":
 				if option == "Decrypt" {
-					log.Fatalln("Cant use Encrypt and Decrypt at the same time")
+					log.Fatalln("Can't use Encrypt and Decrypt at the same time")
 				}
 				option = "Encrypt"
 			case "-d", "-dec", "--decrypt":
 				if option == "Encrypt" {
-					log.Fatalln("Cant use Encrypt and Decrypt at the same time")
+					log.Fatalln("Can't use Encrypt and Decrypt at the same time")
 				}
 				option = "Decrypt"
 			case "-p", "--print":
 				printScreen = true
+			case "-b", "--binary":
+				binary = true
+				fmt.Println("Output will be in binary format (raw data)")
 			default:
 				if file == "" {
 					file = arg
@@ -181,6 +191,8 @@ func main() {
 			}
 		}
 	}
+
+	// checks
 
 	if outfile == "" && file != "" {
 		outfile = file
@@ -195,8 +207,10 @@ func main() {
 	}
 	_, err := os.Stat(file)
 	if err != nil && os.IsNotExist(err) {
-		log.Printf("%q does not exist. try again\n", file)
+		log.Printf("%q does not exist. Try again\n", file)
 	}
+
+	// program
 
 	var result []byte
 	fileData, err := os.ReadFile(file)
@@ -212,7 +226,7 @@ func main() {
 		defer zeroBytes(password)
 		result, err = decrypt(fileData, password)
 		if err != nil {
-			log.Fatalln("Error decryption:", err)
+			log.Fatalln("Error during decryption:", err)
 		}
 	} else if option == "Encrypt" {
 		password, err := setPassword(minPasswordLength)
@@ -238,18 +252,18 @@ func main() {
 	}
 }
 
+func zeroBytes(bytes []byte) {
+	for i := range bytes {
+		bytes[i] = 0
+	}
+}
+
 func generateNonce() ([]byte, error) {
-	nonce := make([]byte, requiredNonceSize) // Fixed to 12 bytes
+	nonce := make([]byte, requiredNonceSize)
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return nil, fmt.Errorf("failed to generate nonce: %v", err)
 	}
 	return nonce, nil
-}
-
-func zeroBytes(data []byte) {
-	for i := range data {
-		data[i] = 0
-	}
 }
 
 func generateSalt() ([]byte, error) {
@@ -260,80 +274,75 @@ func generateSalt() ([]byte, error) {
 	return salt, nil
 }
 
-func deriveKey(password, salt []byte) []byte {
-	return argon2.IDKey(password, salt, uint32(iterationCount), argonMemory, argonParallelism, uint32(keySize))
+func deriveKey(password []byte, salt []byte) []byte {
+	return pbkdf2.Key(password, salt, iterationCount, keySize, sha256.New)
 }
 
-func encrypt(data, passphrase []byte) ([]byte, error) {
-	salt, err := generateSalt()
-	if err != nil {
-		return nil, err
-	}
-	defer zeroBytes(salt)
-
-	key := deriveKey(passphrase, salt)
-	defer zeroBytes(key)
-
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create AES cipher: %v", err)
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create GCM cipher mode: %v", err)
-	}
-
+func encrypt(data []byte, password []byte) ([]byte, error) {
 	nonce, err := generateNonce()
 	if err != nil {
 		return nil, err
 	}
-	defer zeroBytes(nonce)
+	salt, err := generateSalt()
+	if err != nil {
+		return nil, err
+	}
+	key := deriveKey(password, salt)
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	ciphertext := gcm.Seal(nil, nonce, data, nil)
 
-	ciphertext := gcm.Seal(nonce, nonce, data, nil)
-	return []byte(base64.URLEncoding.EncodeToString(append(salt, ciphertext...))), nil
+	if binary {
+		// binary format
+		return append(append(salt, nonce...), ciphertext...), nil
+	}
+	// base64 format
+	encData := append(append(salt, nonce...), ciphertext...)
+	encoded := base64.StdEncoding.EncodeToString(encData)
+	return []byte(encoded), nil
 }
 
 func decrypt(data, passphrase []byte) ([]byte, error) {
-	rawData, err := base64.URLEncoding.DecodeString(string(data))
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode base64 data: %v", err)
+	// base64 format
+	if !binary {
+		var err error
+		data, err = base64.StdEncoding.DecodeString(string(data))
+		if err != nil {
+			return nil, err
+		}
 	}
-
-	if len(rawData) < saltSize+requiredNonceSize {
-		return nil, errors.New("ciphertext is malformed or corrupted")
+	if len(data) < saltSize+requiredNonceSize {
+		return nil, errors.New("malformed ciphertext")
 	}
-
-	salt, ciphertext := rawData[:saltSize], rawData[saltSize:]
-	defer zeroBytes(salt)
+	salt, ciphertext := data[:saltSize], data[saltSize:]
+	nonce, ciphertext := ciphertext[:requiredNonceSize], ciphertext[requiredNonceSize:]
 
 	key := deriveKey(passphrase, salt)
-	defer zeroBytes(key)
-
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create AES cipher: %v", err)
+		return nil, err
 	}
-
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create GCM cipher mode: %v", err)
+		return nil, err
 	}
+	return gcm.Open(nil, nonce, ciphertext, nil)
+}
 
-	if len(ciphertext) < gcm.NonceSize() {
-		return nil, errors.New("ciphertext is too short")
-	}
-
-	nonce, ciphertext := ciphertext[:requiredNonceSize], ciphertext[requiredNonceSize:]
-	defer zeroBytes(nonce)
-
-	// 	return gcm.Open(nil, nonce, ciphertext, nil)
-	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+func prompt(label string) ([]byte, error) {
+	fmt.Print(label)
+	password, err := term.ReadPassword(int(syscall.Stdin))
+	fmt.Println()
 	if err != nil {
-		return nil, fmt.Errorf("decryption failed: %v", err)
+		return nil, err
 	}
-
-	return plaintext, nil
+	return password, nil
 }
 
 func setPassword(minLength int) ([]byte, error) {
@@ -367,12 +376,5 @@ func isStrongPassword(password []byte) bool {
 	re = regexp.MustCompile(`[!@#$%^&*]`)
 	hasSpecial := re.Match(password)
 
-	return len(password) >= minPasswordLength && hasUppercase && hasDigit && hasSpecial
-}
-
-func prompt(input string) ([]byte, error) {
-	fmt.Fprint(os.Stderr, input)
-	defer fmt.Fprintln(os.Stderr)
-
-	return term.ReadPassword(int(syscall.Stdin))
+	return hasUppercase && hasDigit && hasSpecial
 }
