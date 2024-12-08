@@ -375,9 +375,9 @@ func isStrongPassword(password []byte) bool {
 	re = regexp.MustCompile(`\d`)
 	hasDigit := re.Match(password)
 	// check for one special character from the set [!@#$%^&*()_+=\[\]{}:;'"<>.,?/~\-]
-	re = regexp.MustCompile(`[!@#$%^&*()_+=\[\]{}:;'"<>.,?/~\-]`)
-	hasSpecial := re.Match(password)
-	return hasUppercase && hasDigit && hasSpecial
+	// re = regexp.MustCompile(`[!@#$%^&*()_+=\[\]{}:;'"<>.,?/~\-]`)
+	// hasSpecial := re.Match(password)
+	return hasUppercase && hasDigit //&& hasSpecial
 }
 
 func prompt(label string) ([]byte, error) {
