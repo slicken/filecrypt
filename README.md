@@ -1,6 +1,6 @@
-# filecrypt2: Secure File Encryption Tool
+# filecrypt: Secure File Encryption Tool
 
-**filecrypt2** is a command-line file encryption tool written in Go, designed for robust security and ease of use. It uses strong encryption algorithms and provides flexibility to customize key cryptographic parameters.
+**filecrypt** is a command-line file encryption tool written in Go, designed for robust security and ease of use. It uses strong encryption algorithms and provides flexibility to customize key cryptographic parameters.
 
 ---
 
@@ -44,18 +44,18 @@
 
 ```bash
 # Encrypt a file
-filecrypt2 -e file.txt file.enc
+filecrypt -e file.txt file.enc
 
 # Decrypt a file
-filecrypt2 -d file.enc file.txt
+filecrypt -d file.enc file.txt
 
 # Customize settings (e.g., salt size, iteration count, or key size)
-filecrypt2 --salt=64 --iter=20000000 --key=64 -e file.txt file.enc
+filecrypt --salt=64 --iter=20000000 --key=64 -e file.txt file.enc
 ```
 
 ## Help:
 ```
-Usage: ./filecrypt2 [<settings>] [option] <input_file> [<output_file>]
+Usage: ./filecrypt [<settings>] [option] <input_file> [<output_file>]
 
 Advanced Settings:
   -s, --salt SIZE    Salt size (default: %d bytes)
@@ -76,7 +76,7 @@ result to stdout without modifying input_file.
 If output_file or the print option is used, input_file will not be modified.
 
 Examples:
-  Encrypt a file: ./filecrypt2 -e file.txt file.enc
-  Decrypt a file: ./filecrypt2 -d file.enc file.txt
-  Print decrypted file: ./filecrypt2 -d file.enc -p or ./filecrypt2 file.enc
+  Encrypt a file: ./filecrypt -e file.txt file.enc
+  Decrypt a file: ./filecrypt -d file.enc file.txt
+  Print decrypted file: ./filecrypt -d file.enc -p or ./filecrypt file.enc
 ```
