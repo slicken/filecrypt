@@ -21,11 +21,6 @@ import (
 	"golang.org/x/term"
 )
 
-/*
-runtime.GOMAXPROCS(8)
-fmt.Println("Number of CPU cores being used:", runtime.NumCPU())
-*/
-
 const (
 	minPasswordLength = 8
 	minSaltSize       = 8
@@ -117,7 +112,7 @@ func main() {
 				}
 				fmt.Println("Key size set to:", keySize)
 			default:
-				log.Fatalf("Invalid argument: %s\n", flag)
+				log.Fatalf("Invalid argument: %s. Use -h or --help to see the correct usage.\n", flag)
 			}
 		} else {
 			// Process flags that don't require an equal sign
@@ -223,7 +218,6 @@ func main() {
 		if err != nil {
 			log.Fatalln(err)
 		}
-		defer zeroBytes(password)
 		result, err = decrypt(fileData, password)
 		if err != nil {
 			log.Fatalln("Error during decryption:", err)
@@ -233,7 +227,6 @@ func main() {
 		if err != nil {
 			log.Fatalln(err)
 		}
-		defer zeroBytes(password)
 		result, err = encrypt(fileData, password)
 		if err != nil {
 			log.Fatalln("Encryption error:", err)
@@ -297,9 +290,9 @@ func encrypt(data []byte, password []byte) ([]byte, error) {
 		return nil, err
 	}
 	ciphertext := gcm.Seal(nil, nonce, data, nil)
-
+	zeroBytes(password)
+	// binary format
 	if binary {
-		// binary format
 		return append(append(salt, nonce...), ciphertext...), nil
 	}
 	// base64 format
@@ -326,17 +319,22 @@ func decrypt(data, passphrase []byte) ([]byte, error) {
 	key := deriveKey(passphrase, salt)
 	block, err := aes.NewCipher(key)
 	if err != nil {
+		zeroBytes(passphrase)
 		return nil, err
 	}
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
+		zeroBytes(passphrase)
 		return nil, err
 	}
-	return gcm.Open(nil, nonce, ciphertext, nil)
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+
+	zeroBytes(passphrase)
+	return plaintext, err
 }
 
 func prompt(label string) ([]byte, error) {
-	fmt.Print(label)
+	fmt.Fprint(os.Stderr, label)
 	password, err := term.ReadPassword(int(syscall.Stdin))
 	fmt.Println()
 	if err != nil {
@@ -351,30 +349,36 @@ func setPassword(minLength int) ([]byte, error) {
 		return nil, fmt.Errorf("password error: %s", err)
 	}
 	if len(password) < minLength {
+		zeroBytes(password)
 		return nil, fmt.Errorf("password must contain at least %d characters", minLength)
 	}
 	if !isStrongPassword(password) {
+		zeroBytes(password)
 		return nil, fmt.Errorf("password must contain at least one uppercase letter, one digit, and one special character")
 	}
 	confirm, err := prompt("Confirm password: ")
 	if err != nil {
+		zeroBytes(password)
 		return nil, fmt.Errorf("confirmation error: %s", err)
 	}
 	if subtle.ConstantTimeCompare(password, confirm) != 1 {
+		zeroBytes(password)
+		zeroBytes(confirm)
 		return nil, fmt.Errorf("passwords did not match. Try again")
 	}
+	zeroBytes(confirm)
 	return password, nil
 }
 
 func isStrongPassword(password []byte) bool {
+	// check for one uppercase letter
 	re := regexp.MustCompile(`[A-Z]`)
 	hasUppercase := re.Match(password)
-
+	// check for one digit
 	re = regexp.MustCompile(`\d`)
 	hasDigit := re.Match(password)
-
-	re = regexp.MustCompile(`[!@#$%^&*]`)
+	// check for one special character from the set [!@#$%^&*()_+=\[\]{}:;'"<>.,?/~\-]
+	re = regexp.MustCompile(`[!@#$%^&*()_+=\[\]{}:;'"<>.,?/~\-]`)
 	hasSpecial := re.Match(password)
-
 	return hasUppercase && hasDigit && hasSpecial
 }
