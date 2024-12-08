@@ -218,7 +218,7 @@ func main() {
 		if err != nil {
 			log.Fatalln(err)
 		}
-		result, err = decrypt(fileData, password)
+		result, err = decrypt(fileData, &password)
 		if err != nil {
 			log.Fatalln("Error during decryption:", err)
 		}
@@ -227,7 +227,7 @@ func main() {
 		if err != nil {
 			log.Fatalln(err)
 		}
-		result, err = encrypt(fileData, password)
+		result, err = encrypt(fileData, &password)
 		if err != nil {
 			log.Fatalln("Encryption error:", err)
 		}
@@ -271,7 +271,7 @@ func deriveKey(password []byte, salt []byte) []byte {
 	return pbkdf2.Key(password, salt, iterationCount, keySize, sha256.New)
 }
 
-func encrypt(data []byte, password []byte) ([]byte, error) {
+func encrypt(data []byte, password *[]byte) ([]byte, error) {
 	nonce, err := generateNonce()
 	if err != nil {
 		return nil, err
@@ -280,7 +280,8 @@ func encrypt(data []byte, password []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	key := deriveKey(password, salt)
+
+	key := deriveKey(*password, salt)
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
@@ -289,58 +290,54 @@ func encrypt(data []byte, password []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	ciphertext := gcm.Seal(nil, nonce, data, nil)
-	zeroBytes(password)
-	// binary format
+	zeroBytes(*password)
+
+	// return binary or base64 format
 	if binary {
 		return append(append(salt, nonce...), ciphertext...), nil
 	}
-	// base64 format
+
 	encData := append(append(salt, nonce...), ciphertext...)
 	encoded := base64.StdEncoding.EncodeToString(encData)
 	return []byte(encoded), nil
 }
 
-func decrypt(data, passphrase []byte) ([]byte, error) {
+func decrypt(data []byte, passphrase *[]byte) ([]byte, error) {
 	// base64 format
 	if !binary {
 		var err error
-		data, err = base64.StdEncoding.DecodeString(string(data))
+		decodedData, err := base64.StdEncoding.DecodeString(string(data))
 		if err != nil {
 			return nil, err
 		}
+		data = decodedData
 	}
+
 	if len(data) < saltSize+requiredNonceSize {
 		return nil, errors.New("malformed ciphertext")
 	}
+
 	salt, ciphertext := data[:saltSize], data[saltSize:]
 	nonce, ciphertext := ciphertext[:requiredNonceSize], ciphertext[requiredNonceSize:]
 
-	key := deriveKey(passphrase, salt)
+	key := deriveKey(*passphrase, salt)
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		zeroBytes(passphrase)
+		zeroBytes(*passphrase)
 		return nil, err
 	}
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		zeroBytes(passphrase)
+		zeroBytes(*passphrase)
 		return nil, err
 	}
+
 	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	zeroBytes(*passphrase)
 
-	zeroBytes(passphrase)
 	return plaintext, err
-}
-
-func prompt(label string) ([]byte, error) {
-	fmt.Fprint(os.Stderr, label)
-	password, err := term.ReadPassword(int(syscall.Stdin))
-	fmt.Println()
-	if err != nil {
-		return nil, err
-	}
-	return password, nil
 }
 
 func setPassword(minLength int) ([]byte, error) {
@@ -381,4 +378,14 @@ func isStrongPassword(password []byte) bool {
 	re = regexp.MustCompile(`[!@#$%^&*()_+=\[\]{}:;'"<>.,?/~\-]`)
 	hasSpecial := re.Match(password)
 	return hasUppercase && hasDigit && hasSpecial
+}
+
+func prompt(label string) ([]byte, error) {
+	fmt.Fprint(os.Stderr, label)
+	password, err := term.ReadPassword(int(syscall.Stdin))
+	fmt.Println()
+	if err != nil {
+		return nil, err
+	}
+	return password, nil
 }
