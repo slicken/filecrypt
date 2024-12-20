@@ -220,7 +220,7 @@ func main() {
 		}
 		result, err = decrypt(fileData, &password)
 		if err != nil {
-			log.Fatalln("Error during decryption:", err)
+			log.Fatalf("Failed to decrypt %s. Please ty again\n", file)
 		}
 	} else if option == "Encrypt" {
 		password, err := setPassword(minPasswordLength)
