@@ -369,7 +369,7 @@ func setPassword(minLength int) ([]byte, error) {
 
 // func isStrongPassword(password []byte) bool {
 //     // Regular expression to check for at least one uppercase letter, one lowercase letter, one digit, and one special character
-//     re := regexp.MustCompile(`(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[!@#$%^&*()_+=\[\]{}:;'"<>.,?/~\-])`)
+//     re := regexp.MustCompile(`(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[!@#$%^&*()_+=\[\]{}:;'"<>.,?/~\\-])`)
 //     return re.Match(password)
 // }
 
@@ -384,7 +384,7 @@ func isStrongPassword(password []byte) bool {
 	re = regexp.MustCompile(`\d`)
 	hasDigit := re.Match(password)
 	// check for at least one special character
-	re = regexp.MustCompile(`[!@#$%^&*()_+=\[\]{}:;'"<>.,?/~\-])`)
+	re = regexp.MustCompile(`[!@#$%^&*()_+=\[\]{}:;'"<>.,?/~\\-]`)
 	hasSpecial := re.Match(password)
 	return hasUppercase && hasLowercase && hasDigit && hasSpecial
 }
