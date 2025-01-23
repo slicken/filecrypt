@@ -177,6 +177,8 @@ func main() {
 			case "-b", "--binary":
 				binary = true
 				fmt.Println("Output will be in binary format (raw data)")
+			case "-h", "--help":
+				printHelp(0)
 			default:
 				if file == "" {
 					file = arg
@@ -213,7 +215,8 @@ func main() {
 		log.Fatalln("Error reading file:", err)
 	}
 
-	if option == "Print" || option == "Decrypt" {
+	fmt.Printf("%s '%s'.\n", option, file)
+	if option == "Decrypt" {
 		password, err := prompt("Enter password: ")
 		if err != nil {
 			log.Fatalln(err)
@@ -366,12 +369,6 @@ func setPassword(minLength int) ([]byte, error) {
 	zeroBytes(confirm)
 	return password, nil
 }
-
-// func isStrongPassword(password []byte) bool {
-//     // Regular expression to check for at least one uppercase letter, one lowercase letter, one digit, and one special character
-//     re := regexp.MustCompile(`(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[!@#$%^&*()_+=\[\]{}:;'"<>.,?/~\\-])`)
-//     return re.Match(password)
-// }
 
 func isStrongPassword(password []byte) bool {
 	// check for at least one uppercase letter
